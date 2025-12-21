@@ -7,3 +7,6 @@ debug = false
 # set to true to use the md-380 software vocoder
 # this will only work on an arm-based system, like a raspberry pi
 swambe2 = false
+
+# set to true for software only mode support (no AMBE hardware)
+swmodes = false
