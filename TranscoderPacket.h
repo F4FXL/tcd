@@ -59,7 +59,7 @@ public:
 	bool P25IsSet() const;
 	bool M17IsSet() const;
 	bool USRPIsSet() const;
-	bool AllCodecsAreSet() const;
+	bool AllCodecsAreSet();
 	void Sent();
 	bool HasNotBeenSent() const;
 

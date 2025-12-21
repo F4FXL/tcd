@@ -1,3 +1,4 @@
+#ifndef SW_MODES_ONLY
 #pragma once
 
 // tcd - a hybid transcoder using DVSI hardware and Codec2 software
@@ -35,3 +36,4 @@ protected:
 private:
 	CPacketQueue waiting_packet;	// the packet currently being processed in each vocoder
 };
+#endif

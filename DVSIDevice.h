@@ -1,5 +1,5 @@
 #pragma once
-
+#ifndef SW_MODES_ONLY
 // tcd - a hybid transcoder using DVSI hardware and Codec2 software
 // Copyright © 2022 Thomas A. Early N7TAE
 
@@ -64,3 +64,4 @@ protected:
 	virtual bool SendAudio(const uint8_t channel, const int16_t *audio) const = 0;
 	virtual bool SendData(const uint8_t channel, const uint8_t *data) const = 0;
 };
+#endif

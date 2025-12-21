@@ -14,10 +14,16 @@ ifeq ($(swambe2), true)
 CFLAGS+= -DUSE_SW_AMBE2
 endif
 
-LDFLAGS = -lftd2xx -limbe_vocoder -pthread
+LDFLAGS = -limbe_vocoder -pthread
 
 ifeq ($(swambe2), true)
 LDFLAGS += -lmd380_vocoder
+endif
+
+ifeq ($(swmodes), true)
+CFLAGS+= -DSW_MODES_ONLY
+else
+LDFLAGS += -lftd2xx
 endif
 
 SRCS = $(wildcard *.cpp) $(wildcard codec2/*.cpp)

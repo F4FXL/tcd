@@ -72,12 +72,33 @@ void CController::Stop()
 		c2Future.get();
 
 	tcClient.Close();
+#ifndef SW_MODES_ONLY
 	dstar_device->CloseDevice();
 	dmrsf_device->CloseDevice();
 	dstar_device.reset();
 	dmrsf_device.reset();
+#endif
 }
 
+#ifdef SW_MODES_ONLY
+bool CController::InitVocoders()
+{
+	// M17 "devices", one for each module
+	const std::string modules(g_Conf.GetTCMods());
+	for ( auto c : modules)
+	{
+		c2_16[c] = std::unique_ptr<CCodec2>(new CCodec2(false));
+		c2_32[c] = std::unique_ptr<CCodec2>(new CCodec2(true));
+	}
+	
+#ifdef USE_SW_AMBE2
+	md380_init();
+	ambe_in_num = calcNumerator(g_Conf.GetGain(EGainType::dmrin));
+	ambe_out_num = calcNumerator(g_Conf.GetGain(EGainType::dmrout));
+#endif
+	return false;
+}
+#else
 bool CController::DiscoverFtdiDevices(std::list<std::pair<std::string, std::string>> &found)
 {
 	int iNbDevices = 0;
@@ -243,6 +264,7 @@ bool CController::InitVocoders()
 
 	return false;
 }
+#endif // #ifndef SW_MODES_ONLY
 
 // Encapsulate the incoming STCPacket into a CTranscoderPacket and push it into the appropriate queue
 // based on packet's codec_in.
@@ -264,14 +286,18 @@ void CController::ReadReflectorThread()
 			queue.pop();
 			switch (packet->GetCodecIn())
 			{
+#ifndef SW_MODES_ONLY
 			case ECodecType::dstar:
 				dstar_device->AddPacket(packet);
 				break;
+#endif
 			case ECodecType::dmr:
 #ifdef USE_SW_AMBE2
 				swambe2_queue.push(packet);
 #else
+#ifndef SW_MODES_ONLY
 				dmrsf_device->AddPacket(packet);
+#endif
 #endif
 				break;
 			case ECodecType::p25:
@@ -372,13 +398,16 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 		}
 	}
 	// the only thing left is to encode the two ambe, so push the packet onto both AMBE queues
+#ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
-
+#endif
 #ifdef USE_SW_AMBE2
-	md380_encode_fec(ambe2, packet->GetAudioSamples());
+	md380_encode_fec(ambe2, (int16_t *)packet->GetAudioSamples());
 	packet->SetDMRData(ambe2);
 #else
+#ifndef SW_MODES_ONLY
 	dmrsf_device->AddPacket(packet);
+#endif
 #endif
 	p25vocoder.encode_4400((int16_t*)packet->GetAudioSamples(), imbe);
 	packet->SetP25Data(imbe);
@@ -425,7 +454,7 @@ void CController::AudiotoSWAMBE2(std::shared_ptr<CTranscoderPacket> packet)
 		md380_encode_fec(ambe2, tmp);
 	}
 	else
-		md380_encode_fec(ambe2, p);
+		md380_encode_fec(ambe2, (int16_t *)p);
 
 	packet->SetDMRData(ambe2);
 
@@ -438,15 +467,16 @@ void CController::AudiotoSWAMBE2(std::shared_ptr<CTranscoderPacket> packet)
 void CController::SWAMBE2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 {
 	int16_t tmp[160];
-	md380_decode_fec(packet->GetDMRData(), tmp);
+	md380_decode_fec((uint8_t *)packet->GetDMRData(), tmp);
 	if (ambe_out_num != 256)
 	{
 		for (int i=0; i<160; i++)
 			tmp[i] = (tmp[i] * ambe_out_num) >> 8;
 	}
 	packet->SetAudioSamples(tmp, false);
-
+#ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
+#endif
 	codec2_queue.push(packet);
 	imbe_queue.push(packet);
 	usrp_queue.push(packet);
@@ -493,13 +523,17 @@ void CController::IMBEtoAudio(std::shared_ptr<CTranscoderPacket> packet)
 	int16_t tmp[160] = { 0 };
 	p25vocoder.decode_4400(tmp, (uint8_t*)packet->GetP25Data());
 	packet->SetAudioSamples(tmp, false);
+#ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
+#endif
 	codec2_queue.push(packet);
 
 #ifdef USE_SW_AMBE2
 	swambe2_queue.push(packet);
 #else
+#ifndef SW_MODES_ONLY
 	dmrsf_device->AddPacket(packet);
+#endif
 #endif
 
 	usrp_queue.push(packet);
@@ -562,14 +596,17 @@ void CController::USRPtoAudio(std::shared_ptr<CTranscoderPacket> packet)
 	}
 	else
 		packet->SetAudioSamples(p, false);
-
+#ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
+#endif
 	codec2_queue.push(packet);
 
 #ifdef USE_SW_AMBE2
 	swambe2_queue.push(packet);
 #else
+#ifndef SW_MODES_ONLY
 	dmrsf_device->AddPacket(packet);
+#endif
 #endif
 
 	imbe_queue.push(packet);
@@ -619,7 +656,9 @@ void CController::RouteDstPacket(std::shared_ptr<CTranscoderPacket> packet)
 #ifdef USE_SW_AMBE2
 		swambe2_queue.push(packet);
 #else
+#ifndef SW_MODES_ONLY
 		dmrsf_device->AddPacket(packet);
+#endif
 #endif
 	}
 	else
@@ -637,7 +676,9 @@ void CController::RouteDmrPacket(std::shared_ptr<CTranscoderPacket> packet)
 		codec2_queue.push(packet);
 		imbe_queue.push(packet);
 		usrp_queue.push(packet);
+#ifndef SW_MODES_ONLY
 		dstar_device->AddPacket(packet);
+#endif
 	}
 	else
 	{

@@ -1,3 +1,4 @@
+#ifndef SW_MODES_ONLY
 /*
  *   Copyright (C) 2014 by Jonathan Naylor G4KLX and John Hays K7VE
  *   Copyright 2016 by Jeremy McDermond (NH6Z)
@@ -640,3 +641,4 @@ void CDVDevice::ReadDevice()
 		}
 	}
 }
+#endif

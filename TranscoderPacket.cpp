@@ -178,8 +178,14 @@ bool CTranscoderPacket::M17IsSet() const
 	return m17_set;
 }
 
-bool CTranscoderPacket::AllCodecsAreSet() const
+bool CTranscoderPacket::AllCodecsAreSet()
 {
+#ifdef SW_MODES_ONLY
+	dstar_set = true;
+#ifndef USE_SW_AMBE2
+	dmr_set = true;
+#endif
+#endif
 	return (dstar_set && dmr_set && m17_set && p25_set && usrp_set);
 }
 

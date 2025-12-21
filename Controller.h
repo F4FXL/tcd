@@ -26,6 +26,9 @@
 #include <utility>
 #include <imbe_vocoder_api.h>
 
+#ifdef SW_MODES_ONLY
+#include "PacketQueue.h"
+#endif
 #include "codec2.h"
 #include "DV3000.h"
 #include "DV3003.h"
@@ -50,8 +53,9 @@ protected:
 	std::unordered_map<char, uint8_t[8]> data_store;
 	CTCClient tcClient;
 	std::unordered_map<char, std::unique_ptr<CCodec2>> c2_16, c2_32;
+#ifndef SW_MODES_ONLY
 	std::unique_ptr<CDVDevice> dstar_device, dmrsf_device;
-
+#endif
 	CPacketQueue codec2_queue;
 
 	CPacketQueue imbe_queue;
@@ -61,7 +65,9 @@ protected:
 	imbe_vocoder p25vocoder;
 
 	int32_t calcNumerator(int32_t db) const;
+#ifndef SW_MODES_ONLY
 	bool DiscoverFtdiDevices(std::list<std::pair<std::string, std::string>> &found);
+#endif
 	bool InitVocoders();
 	// processing threads
 	void ReadReflectorThread();
