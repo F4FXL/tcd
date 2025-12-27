@@ -149,9 +149,12 @@ bool CConfigure::ReadData(const std::string &path)
 		return true;
 	}
 
-	if (! std::regex_match(address, IPv4RegEx) && ! std::regex_match(address, IPv6RegEx))
+	// Check for IPC/File path or standard IP
+	bool isIPC = (address.find("ipc://") == 0) || (address.find("/") == 0) || (address.find("./") == 0) || (address.find("../") == 0);
+
+	if (!isIPC && !std::regex_match(address, IPv4RegEx) && !std::regex_match(address, IPv6RegEx))
 	{
-		std::cerr << "ERROR: '" << address << "' is malformed, Halt." << std::endl;
+		std::cerr << "ERROR: '" << address << "' is malformed (not a valid IP or IPC path), Halt." << std::endl;
 		return true;
 	}
 

@@ -14,7 +14,7 @@ ifeq ($(swambe2), true)
 CFLAGS+= -DUSE_SW_AMBE2
 endif
 
-LDFLAGS = -limbe_vocoder -pthread
+LDFLAGS = -limbe_vocoder -pthread -lnng
 
 ifeq ($(swambe2), true)
 LDFLAGS += -lmd380_vocoder
