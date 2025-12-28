@@ -358,12 +358,19 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 	uint8_t ambe2[9];
 	uint8_t imbe[11];
 
+	// DEBUG: M17 Packet Input
+	if (packet->GetCodecIn() == ECodecType::c2_3200 || packet->GetCodecIn() == ECodecType::c2_1600) {
+		printf("TCD_DEBUG: Codec2toAudio Seq=%u IsSecond=%d Codec=%d Mod=%d\n", 
+			packet->GetSequence(), packet->IsSecond(), (int)packet->GetCodecIn(), packet->GetModule());
+	}
+
 	if (packet->IsSecond())
 	{
 		if (packet->GetCodecIn() == ECodecType::c2_1600)
 		{
 			// we've already calculated the audio in the previous packet
 			// copy the audio from local audio store
+			printf("TCD_DEBUG: Using audio_store for c2_1600 second packet\n");
 			packet->SetAudioSamples(audio_store[packet->GetModule()], false);
 		}
 		else /* codec_in is ECodecType::c2_3200 */
@@ -372,6 +379,7 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 			// decode the second 8 data bytes
 			// and put it in the packet
 			c2_32[packet->GetModule()]->codec2_decode(tmp, packet->GetM17Data()+8);
+			printf("TCD_DEBUG: Decoded c2_3200 second packet (offset 8)\n");
 			packet->SetAudioSamples(tmp, false);
 		}
 	}
@@ -390,12 +398,14 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 			packet->SetAudioSamples(tmp, false);
 			// and the second half goes into the audio store
 			memcpy(audio_store[packet->GetModule()], &(tmp[160]), 320);
+			printf("TCD_DEBUG: Decoded c2_1600 first packet, stored second half to audio_store\n");
 		}
 		else /* codec_in is ECodecType::c2_3200 */
 		{
 			int16_t tmp[160];
 			c2_32[m]->codec2_decode(tmp, packet->GetM17Data());
 			packet->SetAudioSamples(tmp, false);
+			printf("TCD_DEBUG: Decoded c2_3200 first packet (offset 0)\n");
 		}
 	}
 	// the only thing left is to encode the two ambe, so push the packet onto both AMBE queues
