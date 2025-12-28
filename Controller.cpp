@@ -413,6 +413,10 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 	p25vocoder.encode_4400((int16_t*)packet->GetAudioSamples(), imbe);
 	packet->SetP25Data(imbe);
 	packet->SetUSRPData((int16_t*)packet->GetAudioSamples());
+	
+	send_mux.lock();
+	if (packet->AllCodecsAreSet() && packet->HasNotBeenSent()) SendToReflector(packet);
+	send_mux.unlock();
 }
 
 void CController::ProcessC2Thread()
