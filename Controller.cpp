@@ -23,6 +23,7 @@
 #include <sstream>
 #include <fstream>
 #include <thread>
+#include <unordered_set>
 #include <queue>
 #ifdef USE_SW_AMBE2
 #include <md380_vocoder.h>
@@ -43,10 +44,36 @@ int32_t CController::calcNumerator(int32_t db) const
 
 CController::CController() : keep_running(true) {}
 
+void CController::ProcessAGC(int16_t* samples, size_t count, char module)
+{
+	if (!g_Conf.IsAGCEnabled()) return;
+    
+    std::lock_guard<std::mutex> lock(agc_mux);
+    
+    // Lazy config update / Ensure valid target
+	agcs[module].SetTargetLevel(m_agc_target_linear);
+	agcs[module].Process(samples, count);
+}
+
 bool CController::Start()
 {
-	usrp_rx_num = calcNumerator(g_Conf.GetGain(EGainType::usrprx));
-	usrp_tx_num = calcNumerator(g_Conf.GetGain(EGainType::usrptx));
+	// agc.SetEnabled(g_Conf.IsAGCEnabled()); // logic moved to ProcessAGC
+
+	if (g_Conf.IsAGCEnabled()) {
+        // Calculate linear target from configured dBFS
+        // 10^(dB/20)
+        float db = g_Conf.GetAGCTargetLevel();
+        m_agc_target_linear = powf(10.0f, db / 20.0f);
+        std::cout << "AGC Configured Target: " << db << " dBFS (Linear: " << m_agc_target_linear << ")" << std::endl;
+
+		usrp_rx_num = 256;
+		// usrp_tx_num = 256; // Don't override TX gain, AGC is only on RX paths!
+        usrp_tx_num = calcNumerator(g_Conf.GetGain(EGainType::usrptx));
+		std::cout << "AGC Enabled: Forcing RX gains to Unity (256). Preserving TX gains." << std::endl;
+	} else {
+		usrp_rx_num = calcNumerator(g_Conf.GetGain(EGainType::usrprx));
+		usrp_tx_num = calcNumerator(g_Conf.GetGain(EGainType::usrptx));
+	}
 
 	if (InitVocoders() || tcClient.Open(g_Conf.GetAddress(), g_Conf.GetTCMods(), g_Conf.GetPort()))
 	{
@@ -94,8 +121,13 @@ bool CController::InitVocoders()
 	
 #ifdef USE_SW_AMBE2
 	md380_init();
-	ambe_in_num = calcNumerator(g_Conf.GetGain(EGainType::dmrin));
-	ambe_out_num = calcNumerator(g_Conf.GetGain(EGainType::dmrout));
+	if (g_Conf.IsAGCEnabled()) {
+		ambe_in_num = 256;
+		ambe_out_num = 256;
+	} else {
+		ambe_in_num = calcNumerator(g_Conf.GetGain(EGainType::dmrin));
+		ambe_out_num = calcNumerator(g_Conf.GetGain(EGainType::dmrout));
+	}
 #endif
 	return false;
 }
@@ -285,6 +317,18 @@ void CController::ReadReflectorThread()
 			// there is only one CTranscoderPacket created for each new STCPacket received from the reflector
 			auto packet = std::make_shared<CTranscoderPacket>(*queue.front());
 			queue.pop();
+            
+            // Safety check: Ensure module is configured before processing
+            if (g_Conf.GetTCMods().find(packet->GetModule()) == std::string::npos) {
+                 static std::unordered_set<char> warned_modules;
+                 if (warned_modules.find(packet->GetModule()) == warned_modules.end()) {
+                     std::cerr << "Warning: Received packet for unconfigured module " << packet->GetModule() 
+                               << ". Dropping. Please configure 'Modules' in tcd.ini to include this module." << std::endl;
+                     warned_modules.insert(packet->GetModule());
+                 }
+                 continue;
+            }
+
 			switch (packet->GetCodecIn())
 			{
 #ifndef SW_MODES_ONLY
@@ -368,6 +412,12 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 			// copy the audio from local audio store
 
 			packet->SetAudioSamples(audio_store[packet->GetModule()], false);
+			// Process AGC second half (actually buffer was contiguous, but packet only sees ptr)
+			// Wait, the buffer stored in audio_store was already decoding whole 320?
+			// c2_1600 produces 320 samples. We stored offset 160 in audio_store.
+			// So this second half needs AGC? Or was it processed as a block?
+			// The AGC needs valid envelope.
+			ProcessAGC((int16_t*)packet->GetAudioSamples(), 160, packet->GetModule());
 		}
 		else /* codec_in is ECodecType::c2_3200 */
 		{
@@ -375,6 +425,7 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 			// decode the second 8 data bytes
 			// and put it in the packet
 			c2_32[packet->GetModule()]->codec2_decode(tmp, packet->GetM17Data()+8);
+			ProcessAGC(tmp, 160, packet->GetModule());
 
 			packet->SetAudioSamples(tmp, false);
 		}
@@ -392,6 +443,8 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 			// move the first and second half
 			// the first half is for the packet
 			packet->SetAudioSamples(tmp, false);
+			// Process AGC on first half
+			ProcessAGC((int16_t*)packet->GetAudioSamples(), 160, packet->GetModule());
 			// and the second half goes into the audio store
 			memcpy(audio_store[packet->GetModule()], &(tmp[160]), 320);
 
@@ -400,6 +453,7 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 		{
 			int16_t tmp[160];
 			c2_32[m]->codec2_decode(tmp, packet->GetM17Data());
+			ProcessAGC(tmp, 160, packet->GetModule()); // AGC here before setting
 			packet->SetAudioSamples(tmp, false);
 
 		}
@@ -484,6 +538,7 @@ void CController::SWAMBE2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 		for (int i=0; i<160; i++)
 			tmp[i] = (tmp[i] * ambe_out_num) >> 8;
 	}
+	ProcessAGC(tmp, 160, packet->GetModule());
 	packet->SetAudioSamples(tmp, false);
 #ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
@@ -533,6 +588,7 @@ void CController::IMBEtoAudio(std::shared_ptr<CTranscoderPacket> packet)
 {
 	int16_t tmp[160] = { 0 };
 	p25vocoder.decode_4400(tmp, (uint8_t*)packet->GetP25Data());
+	ProcessAGC(tmp, 160, packet->GetModule());
 	packet->SetAudioSamples(tmp, false);
 #ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
@@ -603,10 +659,18 @@ void CController::USRPtoAudio(std::shared_ptr<CTranscoderPacket> packet)
 		int16_t tmp[160];
 		for(int i = 0; i < 160; ++i)
 			tmp[i] = int16_t((p[i] * usrp_rx_num) >> 8);
+		
+		ProcessAGC(tmp, 160, packet->GetModule());
 		packet->SetAudioSamples(tmp, false);
 	}
-	else
-		packet->SetAudioSamples(p, false);
+	else {
+		// Even if gain is 256, we need to process AGC if enabled
+		// We cannot modify 'p' in place if it's const, so copy to tmp
+		int16_t tmp[160];
+		memcpy(tmp, p, 320);
+		ProcessAGC(tmp, 160, packet->GetModule());
+		packet->SetAudioSamples(tmp, false);
+	}
 #ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
 #endif
