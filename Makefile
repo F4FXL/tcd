@@ -4,14 +4,17 @@ include tcd.mk
 
 GCC = g++
 
-ifeq ($(debug), true)
-CFLAGS = -ggdb3 -W -Werror -Icodec2 -MMD -MD -std=c++17
+ifneq ($(debug), true)
+GCC_FLAGS = -ggdb3 -W -Icodec2 -MMD
 else
-CFLAGS = -W -Werror -Icodec2 -MMD -MD -std=c++17
+GCC_FLAGS = -W -Icodec2 -MMD
 endif
+CFLAGS = $(GCC_FLAGS)
+CXXFLAGS = $(GCC_FLAGS) -std=c++17
 
 ifeq ($(swambe2), true)
 CFLAGS+= -DUSE_SW_AMBE2
+CXXFLAGS+= -DUSE_SW_AMBE2
 endif
 
 LDFLAGS = -limbe_vocoder -pthread -lnng
@@ -22,13 +25,14 @@ endif
 
 ifeq ($(swmodes), true)
 CFLAGS+= -DSW_MODES_ONLY
+CXXFLAGS+= -DSW_MODES_ONLY
 else
 LDFLAGS += -lftd2xx
 endif
 
-SRCS = $(wildcard *.cpp) $(wildcard codec2/*.cpp)
-OBJS = $(SRCS:.cpp=.o)
-DEPS = $(SRCS:.cpp=.d)
+SRCS = $(wildcard *.cpp) $(wildcard codec2/*.cpp) $(wildcard codec2/*.c)
+OBJS = $(addsuffix .o, $(basename $(SRCS)))
+DEPS = $(addsuffix .d, $(basename $(SRCS)))
 EXE = tcd
 
 $(EXE) : $(OBJS)
@@ -39,7 +43,10 @@ else
 endif
 
 %.o : %.cpp
-	$(GCC) $(CFLAGS) -c $< -o $@
+	$(GCC) $(CXXFLAGS) -c $< -o $@
+
+%.o : %.c
+	$(GCC) $(CFLAGS) -x c -c $< -o $@
 
 clean :
 	$(RM) $(EXE) $(OBJS) $(DEPS)
