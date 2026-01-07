@@ -70,6 +70,10 @@ protected:
 	CPacketQueue usrp_queue;
 	std::mutex send_mux;
 	int32_t ambe_in_num, ambe_out_num, usrp_rx_num, usrp_tx_num;
+	// Restored maps
+	std::unordered_map<char, CCodec2::unique_ptr> c2_16;
+	std::unordered_map<char, CCodec2::unique_ptr> c2_32;
+    std::unordered_map<char, imbe_vocoder> p25vocoders;
 	imbe_vocoder p25vocoder;
 
 	int32_t calcNumerator(int32_t db) const;
