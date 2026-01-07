@@ -106,6 +106,12 @@ void CController::Stop()
 	dstar_device.reset();
 	dmrsf_device.reset();
 #endif
+#ifdef USE_SW_AMBE2
+    for (auto& pair : md380_coders) {
+        md380_free(pair.second);
+    }
+    md380_coders.clear();
+#endif
 }
 
 #ifdef SW_MODES_ONLY
@@ -119,10 +125,14 @@ bool CController::InitVocoders()
 		c2_32[c] = std::unique_ptr<CCodec2>(new CCodec2(true));
         // Initialize one imbe_vocoder per module
         p25vocoders.emplace(c, imbe_vocoder());
+        // Initialize DMR vocoder per module
+#ifdef USE_SW_AMBE2
+        md380_coders[c] = md380_new();
+#endif
 	}
 	
 #ifdef USE_SW_AMBE2
-	md380_init();
+	// md380_init(); // global init no longer strictly needed if using contexts, but harmless
 	if (g_Conf.IsAGCEnabled()) {
 		ambe_in_num = 256;
 		ambe_out_num = 256;
@@ -467,7 +477,7 @@ void CController::Codec2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 	dstar_device->AddPacket(packet);
 #endif
 #ifdef USE_SW_AMBE2
-	md380_encode_fec(ambe2, (int16_t *)packet->GetAudioSamples());
+	md380_encode_fec_ctx(md380_coders[packet->GetModule()], ambe2, (int16_t *)packet->GetAudioSamples());
 	packet->SetDMRData(ambe2);
 #else
 #ifndef SW_MODES_ONLY
@@ -521,10 +531,10 @@ void CController::AudiotoSWAMBE2(std::shared_ptr<CTranscoderPacket> packet)
 		int16_t tmp[160];
 		for(int i = 0; i < 160; ++i)
 			tmp[i] = int16_t((p[i] * ambe_in_num) >> 8);
-		md380_encode_fec(ambe2, tmp);
+		md380_encode_fec_ctx(md380_coders[packet->GetModule()], ambe2, tmp);
 	}
 	else
-		md380_encode_fec(ambe2, (int16_t *)p);
+		md380_encode_fec_ctx(md380_coders[packet->GetModule()], ambe2, (int16_t *)p);
 
 	packet->SetDMRData(ambe2);
 
@@ -537,7 +547,7 @@ void CController::AudiotoSWAMBE2(std::shared_ptr<CTranscoderPacket> packet)
 void CController::SWAMBE2toAudio(std::shared_ptr<CTranscoderPacket> packet)
 {
 	int16_t tmp[160];
-	md380_decode_fec((uint8_t *)packet->GetDMRData(), tmp);
+	md380_decode_fec_ctx(md380_coders[packet->GetModule()], (uint8_t *)packet->GetDMRData(), tmp);
 	if (ambe_out_num != 256)
 	{
 		for (int i=0; i<160; i++)

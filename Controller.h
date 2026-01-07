@@ -100,5 +100,6 @@ protected:
     void ProcessSWAMBE2Thread();
     void SWAMBE2toAudio(std::shared_ptr<CTranscoderPacket> packet);
     void AudiotoSWAMBE2(std::shared_ptr<CTranscoderPacket> packet);
+    std::unordered_map<char, void*> md380_coders;
 #endif
 };
